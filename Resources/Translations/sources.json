@@ -1,0 +1,11 @@
+[
+  {
+    "title": "魂斗罗 FC 汉化代码（Jixun）",
+    "kind": "translation-source",
+    "url": "https://github.com/JixunMoe/ContraNES1TranslationPatch",
+    "release": "https://jixun.moe/localisation/fc-contra-1/",
+    "download": "https://codeload.github.com/JixunMoe/ContraNES1TranslationPatch/zip/refs/heads/master",
+    "sha256": "cce63c5e82c76461085e0e073115471e3ffa06a7a6efd7410671c6aecbb97749",
+    "note": "汉化代码，不包含原始游戏 ROM；作者发布的可应用文件为 IPS 补丁。"
+  }
+]

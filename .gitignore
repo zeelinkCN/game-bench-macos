@@ -1,0 +1,6 @@
+.DS_Store
+.cache/
+build/
+*.o
+# Game packs live in the separate private game-bench-library repository.
+Resources/Games/
