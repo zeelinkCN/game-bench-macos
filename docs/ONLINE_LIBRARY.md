@@ -11,8 +11,7 @@
 4. 保存到 `~/Library/Application Support/GameBench/ROMs`。
 5. 平台的收藏、存档和金手指继续保存在本机。
 
-当前开发期资源仓库保持 Private。未来改为 Public 后，客户端可直接使用 GitHub
-Raw URL，不需要在应用中保存 Token。若继续保持 Private，则需增加 GitHub OAuth
-Device Flow，并将访问凭据放进 Keychain，不能把个人 Token 写进源码或应用包。
+资源仓库现为 Public，客户端直接使用 GitHub Raw URL，不在应用中保存 Token。
+代码仍保留 GitHub CLI 回退能力，便于开发者测试自己的 Private 分支。
 
 tvOS 版本可复用同一市场协议，但下载资源要遵守 Apple TV 的磁盘空间和按需清理策略。

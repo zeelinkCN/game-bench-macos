@@ -4,16 +4,34 @@ import QuartzCore
 import SwiftUI
 
 final class FramePresenter {
-    weak var view: PixelView?
-    var lastFrame: CGImage?
+    private let lock=NSLock()
+    private var latestFrame: CGImage?
+    private var submitted: UInt64=0
+    private var displayed: UInt64=0
     var smooth=false
-    func present(_ image: CGImage) {
-        lastFrame=image
-        view?.layer?.contents=image
+    func submit(_ image: CGImage) {
+        lock.lock()
+        latestFrame=image
+        submitted &+= 1
+        lock.unlock()
+    }
+    func newestFrame() -> CGImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard displayed != submitted else { return nil }
+        displayed=submitted
+        return latestFrame
+    }
+    func currentFrame() -> CGImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        return latestFrame
     }
 }
 
 final class PixelView: NSView {
+    weak var presenter: FramePresenter?
+    private var displayLink: CADisplayLink?
     override init(frame: NSRect) {
         super.init(frame:frame); wantsLayer=true
         layer?.backgroundColor=NSColor.black.cgColor
@@ -22,17 +40,33 @@ final class PixelView: NSView {
         layer?.minificationFilter = .nearest
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        displayLink?.invalidate(); displayLink=nil
+        guard window != nil else { return }
+        let link=displayLink(target:self,selector:#selector(drawLatestFrame(_:)))
+        link.add(to:.main,forMode:.common)
+        displayLink=link
+    }
+    @objc private func drawLatestFrame(_ link: CADisplayLink) {
+        guard let image=presenter?.newestFrame() else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.contents=image
+        CATransaction.commit()
+    }
+    deinit { displayLink?.invalidate() }
 }
 
 struct GameScreen: NSViewRepresentable {
     let presenter: FramePresenter
     var smooth: Bool
     func makeNSView(context: Context) -> PixelView {
-        let view=PixelView(frame:.zero); presenter.view=view; view.layer?.contents=presenter.lastFrame
+        let view=PixelView(frame:.zero); view.presenter=presenter; view.layer?.contents=presenter.currentFrame()
         return view
     }
     func updateNSView(_ view: PixelView, context: Context) {
-        presenter.view=view
+        view.presenter=presenter
         view.layer?.magnificationFilter=smooth ? .linear : .nearest
         view.layer?.minificationFilter=smooth ? .linear : .nearest
     }
@@ -59,8 +93,6 @@ final class Emulator: ObservableObject {
     let queue=DispatchQueue(label:"GameBench.Emulation",qos:.userInteractive)
     private var timer: DispatchSourceTimer?
     private var current: Game?
-    private var framePending=false
-    private let frameLock=NSLock()
     private var frames=0
     private var statTime=ProcessInfo.processInfo.systemUptime
     var onLaunch: ((Game)->Void)?
@@ -103,26 +135,21 @@ final class Emulator: ObservableObject {
     private func tick() {
         gb_run(); frames+=1
         var w: UInt32=0,h: UInt32=0
-        frameLock.lock()
-        let skip=framePending
-        if !skip { framePending=true }
-        frameLock.unlock()
-        if !skip {
-            if let pixels=gb_frame(&w,&h),w>0,h>0 {
-                let data=Data(bytes:pixels,count:Int(w*h)*4)
-                let provider=CGDataProvider(data:data as CFData)!
-                let info=CGBitmapInfo(rawValue:CGImageAlphaInfo.noneSkipFirst.rawValue).union(.byteOrder32Little)
-                if let image=CGImage(width:Int(w),height:Int(h),bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:Int(w)*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:info,provider:provider,decode:nil,shouldInterpolate:false,intent:.defaultIntent) {
-                    let a=gb_aspect()
+        if let pixels=gb_frame(&w,&h),w>0,h>0 {
+            let data=Data(bytes:pixels,count:Int(w*h)*4)
+            let provider=CGDataProvider(data:data as CFData)!
+            let info=CGBitmapInfo(rawValue:CGImageAlphaInfo.noneSkipFirst.rawValue).union(.byteOrder32Little)
+            if let image=CGImage(width:Int(w),height:Int(h),bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:Int(w)*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:info,provider:provider,decode:nil,shouldInterpolate:false,intent:.defaultIntent) {
+                presenter.submit(image)
+                let width=Int(w),height=Int(h),a=gb_aspect()
+                if sourceWidth != width || sourceHeight != height || abs(aspect-a)>0.001 {
                     DispatchQueue.main.async {
-                        self.presenter.present(image)
-                        if self.sourceWidth != Int(w) { self.sourceWidth=Int(w) }
-                        if self.sourceHeight != Int(h) { self.sourceHeight=Int(h) }
+                        if self.sourceWidth != width { self.sourceWidth=width }
+                        if self.sourceHeight != height { self.sourceHeight=height }
                         if abs(self.aspect-a)>0.001 { self.aspect=a }
-                        self.frameLock.lock(); self.framePending=false; self.frameLock.unlock()
                     }
-                } else { frameLock.lock(); framePending=false; frameLock.unlock() }
-            } else { frameLock.lock(); framePending=false; frameLock.unlock() }
+                }
+            }
         }
         let now=ProcessInfo.processInfo.systemUptime
         if now-statTime>=1 {

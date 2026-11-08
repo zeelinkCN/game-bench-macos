@@ -348,7 +348,7 @@ struct ContentView: View {
             Text("本地文件").font(.system(size:13,weight:.semibold))
             HStack { Button("打开游戏与存档目录") { NSWorkspace.shared.open(LibraryPaths.root) }; Button("打开 BIOS 目录") { NSWorkspace.shared.open(LibraryPaths.bios) } }.buttonStyle(.bordered)
             Text("街机 ROM 需要与 FBNeo 版本匹配。将需要的 BIOS 放入 BIOS 目录；neogeo.zip 也可放在这里。游戏运行和存档无需网络。").font(.system(size:11)).foregroundStyle(Palette.muted).lineSpacing(4)
-            Text("Game Bench · 本地版 0.4.0 · Apple Silicon").font(.system(size:10,design:.monospaced)).foregroundStyle(Palette.muted)
+            Text("Game Bench · 本地版 0.4.1 · Apple Silicon").font(.system(size:10,design:.monospaced)).foregroundStyle(Palette.muted)
         }.padding(30).frame(width:550).background(Palette.background)
     }
     private func handleAction(_ action: PadAction) {
