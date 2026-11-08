@@ -22,7 +22,7 @@ Upstream license copies are included in `Resources/Licenses`. Consult upstream
 license terms before distributing a product built from this prototype. No
 console BIOS files are included.
 
-## Private game backups
+## Separate game resource repository
 
 The repository owner explicitly authorized importing the complete contents of
 their two private-use backup repositories into this local application:
@@ -30,11 +30,11 @@ their two private-use backup repositories into this local application:
 - https://github.com/mengfei523060/nesrom
 - https://github.com/tomiaa12/nesRoms
 
-`Resources/Games/catalog.json` records the displayed title, repository URL and
-SHA-256 content hash of every installed ROM. `Resources/Games/sources.json`
+The separate `zeelinkCN/game-bench-library` repository's `catalog.json` records
+the displayed title, repository URL and SHA-256 content hash of every ROM. Its `sources.json`
 records the exact repository commits, input counts and cross-repository
-deduplication result. This private bundle is not represented as a generally
-redistributable game pack.
+deduplication result. Public repository visibility and the platform's MIT license
+do not relicense the ROMs or legacy artwork; those retain their original rights.
 
 NES cheat presets are factual code mappings from
 https://github.com/libretro/libretro-database/tree/master/cht/Nintendo%20-%20Nintendo%20Entertainment%20System

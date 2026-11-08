@@ -42,8 +42,9 @@ final class ControllerCenter: ObservableObject {
     private var chordWasDown=false
     private var startAssistArmed=false
     private var startAssistDeadline: TimeInterval=0
-    init() {
+    init(monitorDevices: Bool=true) {
         swapAB=UserDefaults.standard.bool(forKey:"swapAB")
+        guard monitorDevices else { return }
         GCController.shouldMonitorBackgroundEvents=false
         for name in [NSNotification.Name.GCControllerDidConnect,.GCControllerDidDisconnect] {
             observer.append(NotificationCenter.default.addObserver(forName:name,object:nil,queue:.main) { [weak self] _ in self?.refresh() })
@@ -112,7 +113,7 @@ final class ControllerCenter: ObservableObject {
             if g.dpad.right.isPressed || g.leftThumbstick.xAxis.value>0.40 { b.insert("→") }
             states[i]=b
             let newStatus=PadStatus(name:pads[i].name,detail:pads[i].detail,connected:true,buttons:b,leftX:(g.leftThumbstick.xAxis.value*20).rounded()/20,leftY:(g.leftThumbstick.yAxis.value*20).rounded()/20,battery:slots[i]?.battery.map { Int($0.batteryLevel*100) })
-            if pads[i] != newStatus { pads[i]=newStatus }
+            updateStatus(newStatus,at:i)
             for (name,bit) in [("A",0),("X",1),("Select",2),("Start",3),("↑",4),("↓",5),("←",6),("→",7),("B",8),("Y",9),("LB",10),("RB",11),("LT",12),("RT",13),("L3",14),("R3",15)] where b.contains(name) { masks[i] |= UInt16(1)<<bit }
             if swapAB {
                 let a=(masks[i]>>0)&1, b=(masks[i]>>8)&1
@@ -160,4 +161,14 @@ final class ControllerCenter: ObservableObject {
         lastButtons=states
     }
     func savePreferences() { UserDefaults.standard.set(swapAB,forKey:"swapAB") }
+    func updateStatus(_ status: PadStatus, at index: Int) {
+        // Raw buttons/axes go directly to the core above. Publishing them also
+        // invalidates the entire SwiftUI player, so only the diagnostics panel
+        // needs to observe those values while a game is running.
+        var visible=status
+        if inGame && !modalOpen {
+            visible.buttons=[]; visible.leftX=0; visible.leftY=0
+        }
+        if pads[index] != visible { pads[index]=visible }
+    }
 }

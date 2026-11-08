@@ -32,7 +32,8 @@ if [[ "$THIN_BUILD" == "1" ]]; then
     mkdir -p "$APP/Contents/Resources/Games"
     print '[]' > "$APP/Contents/Resources/Games/catalog.json"
 else
-    cp -R "$LIBRARY_DIR" "$APP/Contents/Resources/Games"
+    mkdir -p "$APP/Contents/Resources/Games"
+    rsync -a --exclude='.git' --exclude='.DS_Store' "$LIBRARY_DIR/" "$APP/Contents/Resources/Games/"
 fi
 if [[ -d Resources/Translations ]]; then cp -R Resources/Translations "$APP/Contents/Resources/"; fi
 cp .cache/cores/*.dylib "$APP/Contents/Resources/Cores/"
@@ -52,8 +53,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key><string>local.gamebench.mac</string>
 <key>CFBundleExecutable</key><string>GameBench</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.4.1</string>
-<key>CFBundleVersion</key><string>7</string>
+<key>CFBundleShortVersionString</key><string>0.4.2</string>
+<key>CFBundleVersion</key><string>8</string>
 <key>CFBundleIconFile</key><string>AppIcon.icns</string>
 <key>LSUIElement</key><false/>
 <key>LSBackgroundOnly</key><false/>

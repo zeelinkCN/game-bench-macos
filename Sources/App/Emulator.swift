@@ -3,29 +3,65 @@ import Foundation
 import QuartzCore
 import SwiftUI
 
+struct FramePresentationStats: Codable {
+    var submittedFrames: Int
+    var presentedFrames: Int
+    var replacedFrames: Int
+    var intervalP95MS: Double
+    var intervalMaxMS: Double
+}
+
 final class FramePresenter {
     private let lock=NSLock()
     private var latestFrame: CGImage?
     private var submitted: UInt64=0
     private var displayed: UInt64=0
+    private var submittedFrames=0
+    private var presentedFrames=0
+    private var replacedFrames=0
+    private var lastPresentation: TimeInterval?
+    private var intervals=[Double]()
     var smooth=false
     func submit(_ image: CGImage) {
         lock.lock()
         latestFrame=image
         submitted &+= 1
+        submittedFrames+=1
         lock.unlock()
     }
     func newestFrame() -> CGImage? {
         lock.lock()
         defer { lock.unlock() }
         guard displayed != submitted else { return nil }
+        replacedFrames+=Int(submitted-displayed-1)
         displayed=submitted
+        presentedFrames+=1
+        let now=ProcessInfo.processInfo.systemUptime
+        if let last=lastPresentation {
+            intervals.append((now-last)*1000)
+            if intervals.count>1200 { intervals.removeFirst(intervals.count-1200) }
+        }
+        lastPresentation=now
         return latestFrame
     }
     func currentFrame() -> CGImage? {
         lock.lock()
         defer { lock.unlock() }
         return latestFrame
+    }
+    func resetStatistics() {
+        lock.lock(); defer { lock.unlock() }
+        submittedFrames=0; presentedFrames=0; replacedFrames=0
+        intervals.removeAll(keepingCapacity:true); lastPresentation=nil
+    }
+    func statistics() -> FramePresentationStats {
+        lock.lock(); defer { lock.unlock() }
+        let values=intervals.sorted()
+        return FramePresentationStats(submittedFrames:submittedFrames,presentedFrames:presentedFrames,replacedFrames:replacedFrames,intervalP95MS:values.isEmpty ? 0 : values[min(values.count-1,Int(Double(values.count)*0.95))],intervalMaxMS:values.last ?? 0)
+    }
+    var presentationCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return presentedFrames
     }
 }
 
@@ -56,6 +92,7 @@ final class PixelView: NSView {
         CATransaction.commit()
     }
     deinit { displayLink?.invalidate() }
+    func stopDisplayLink() { displayLink?.invalidate(); displayLink=nil }
 }
 
 struct GameScreen: NSViewRepresentable {
@@ -69,6 +106,9 @@ struct GameScreen: NSViewRepresentable {
         view.presenter=presenter
         view.layer?.magnificationFilter=smooth ? .linear : .nearest
         view.layer?.minificationFilter=smooth ? .linear : .nearest
+    }
+    static func dismantleNSView(_ view: PixelView, coordinator: ()) {
+        view.stopDisplayLink()
     }
 }
 
@@ -84,6 +124,7 @@ final class Emulator: ObservableObject {
     @Published var error: String?
     @Published var toast: String?
     @Published var fps=0
+    @Published var presentationFPS=0
     @Published var coreName=""
     @Published var cheats=[GameCheat]()
     @Published var aspect=4.0/3.0
@@ -94,6 +135,12 @@ final class Emulator: ObservableObject {
     private var timer: DispatchSourceTimer?
     private var current: Game?
     private var frames=0
+    private var presentedAtLastStat=0
+    // These fields belong to the emulation queue. Published UI values are only
+    // accessed on the main thread, including when the video geometry changes.
+    private var lastSourceWidth=0
+    private var lastSourceHeight=0
+    private var lastAspect=0.0
     private var statTime=ProcessInfo.processInfo.systemUptime
     var onLaunch: ((Game)->Void)?
 
@@ -120,12 +167,15 @@ final class Emulator: ObservableObject {
             CheatFiles.apply(cheats)
             let rate=gb_fps(), aspect=gb_aspect(), name=String(cString:gb_core_name())
             self.frames=0; self.statTime=ProcessInfo.processInfo.systemUptime
+            self.presenter.resetStatistics(); self.presentedAtLastStat=0
+            self.lastSourceWidth=0; self.lastSourceHeight=0; self.lastAspect=0
             let timer=DispatchSource.makeTimerSource(queue:self.queue)
             timer.schedule(deadline:.now(),repeating:.nanoseconds(Int(1_000_000_000/rate)),leeway:.microseconds(300))
             timer.setEventHandler { [weak self] in self?.tick() }
             self.timer=timer
             DispatchQueue.main.async {
                 self.game=game; self.paused=false; self.loading=false; self.coreName=name; self.aspect=aspect; self.cheats=cheats
+                self.fps=0; self.presentationFPS=0
                 self.onLaunch?(game)
                 if resumeFailed { self.showToast("旧的自动存档无法读取，已从头开始") }
             }
@@ -142,7 +192,8 @@ final class Emulator: ObservableObject {
             if let image=CGImage(width:Int(w),height:Int(h),bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:Int(w)*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:info,provider:provider,decode:nil,shouldInterpolate:false,intent:.defaultIntent) {
                 presenter.submit(image)
                 let width=Int(w),height=Int(h),a=gb_aspect()
-                if sourceWidth != width || sourceHeight != height || abs(aspect-a)>0.001 {
+                if lastSourceWidth != width || lastSourceHeight != height || abs(lastAspect-a)>0.001 {
+                    lastSourceWidth=width; lastSourceHeight=height; lastAspect=a
                     DispatchQueue.main.async {
                         if self.sourceWidth != width { self.sourceWidth=width }
                         if self.sourceHeight != height { self.sourceHeight=height }
@@ -154,7 +205,13 @@ final class Emulator: ObservableObject {
         let now=ProcessInfo.processInfo.systemUptime
         if now-statTime>=1 {
             let measured=Int((Double(frames)/(now-statTime)).rounded())
-            DispatchQueue.main.async { self.fps=measured }
+            let presented=presenter.presentationCount
+            let displayRate=Int((Double(presented-presentedAtLastStat)/(now-statTime)).rounded())
+            presentedAtLastStat=presented
+            DispatchQueue.main.async {
+                if self.fps != measured { self.fps=measured }
+                if self.presentationFPS != displayRate { self.presentationFPS=displayRate }
+            }
             frames=0; statTime=now
         }
     }
@@ -164,7 +221,7 @@ final class Emulator: ObservableObject {
         paused=value
         queue.async { [self] in
             if value { self.timer?.setEventHandler {}; gb_audio_pause(true) }
-            else { gb_audio_pause(false); self.statTime=ProcessInfo.processInfo.systemUptime; self.frames=0; self.timer?.setEventHandler { [weak self] in self?.tick() } }
+            else { gb_audio_pause(false); self.statTime=ProcessInfo.processInfo.systemUptime; self.frames=0; self.presentedAtLastStat=self.presenter.presentationCount; self.timer?.setEventHandler { [weak self] in self?.tick() } }
         }
     }
     func stop() {

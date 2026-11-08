@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 
+#if !PLAYBACK_PERFORMANCE_TESTS
 @main struct GameBenchApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var library=GameLibrary()
@@ -56,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 }
+#endif
 
 struct ContentView: View {
     @ObservedObject var library: GameLibrary
@@ -133,7 +135,6 @@ struct ContentView: View {
         .onChange(of:sheet) { _,value in controllers.modalOpen=value != nil }
         .onChange(of:engine.game) { _,value in controllers.inGame=value != nil }
         .onChange(of:engine.paused) { _,value in controllers.isPaused=value }
-        .onChange(of:filtered.map(\.id)) { _,ids in if !ids.contains(selected) { selected=ids.first ?? "" } }
         .onReceive(NotificationCenter.default.publisher(for:NSApplication.didResignActiveNotification)) { _ in if engine.game != nil { engine.setPaused(true) } }
         .onAppear { controllers.onAction=handleAction }
         .alert("提示",isPresented:Binding(get:{ engine.error != nil || library.error != nil },set:{ if !$0 { engine.error=nil; library.error=nil } })) {
@@ -249,6 +250,11 @@ struct ContentView: View {
                 Spacer(); Text("支持本地双人").font(.system(size:11)).foregroundStyle(Palette.muted); Image(systemName:"person.2").font(.system(size:12)).foregroundStyle(Palette.accent)
             }.padding(.horizontal,30).frame(height:44).background(Palette.panel).overlay(alignment:.top) { Rectangle().fill(Palette.line).frame(height:1) }
         }
+        // Selection reconciliation belongs to the browser. Evaluating this in
+        // ContentView.body used to sort all games even while a game was running.
+        .onChange(of:filtered.map(\.id),initial:true) { _,ids in
+            if !ids.contains(selected) { selected=ids.first ?? "" }
+        }
     }
     private func updateColumns(_ width: CGFloat) { columns=max(2,Int((width-60+18)/198)) }
     private var hero: some View {
@@ -280,7 +286,7 @@ struct ContentView: View {
                 Rectangle().fill(Palette.line).frame(width:1,height:18)
                 Text(game.displayTitle).font(.system(size:13,weight:.semibold)).help(game.title+" · "+game.languageLabel); Text(game.system.subtitle).font(.system(size:9,design:.monospaced)).foregroundStyle(Palette.muted)
                 Spacer()
-                Text("\(engine.sourceWidth) × \(engine.sourceHeight)  ·  \(engine.fps) FPS").font(.system(size:10,design:.monospaced)).foregroundStyle(Palette.muted)
+                Text("\(engine.sourceWidth) × \(engine.sourceHeight)  ·  画面 \(engine.presentationFPS) / 核心 \(engine.fps) FPS").font(.system(size:10,design:.monospaced)).foregroundStyle(Palette.muted).help("画面：每秒提交给显示器的帧数；核心：每秒模拟的主机帧数")
                 Button { engine.setPaused(true); sheet="cheats" } label: { Image(systemName:"wand.and.stars").frame(width:25) }.buttonStyle(.plain).help("金手指 / 作弊模式")
                 Button { engine.togglePause() } label: { Image(systemName:engine.paused ? "play.fill" : "pause.fill").frame(width:25) }.buttonStyle(.plain).help("暂停 / 继续 · Esc")
                 Button { NSApp.keyWindow?.toggleFullScreen(nil) } label: { Image(systemName:"arrow.up.left.and.arrow.down.right").frame(width:25) }.buttonStyle(.plain).help("全屏 · ⌃⌘F")
@@ -348,7 +354,7 @@ struct ContentView: View {
             Text("本地文件").font(.system(size:13,weight:.semibold))
             HStack { Button("打开游戏与存档目录") { NSWorkspace.shared.open(LibraryPaths.root) }; Button("打开 BIOS 目录") { NSWorkspace.shared.open(LibraryPaths.bios) } }.buttonStyle(.bordered)
             Text("街机 ROM 需要与 FBNeo 版本匹配。将需要的 BIOS 放入 BIOS 目录；neogeo.zip 也可放在这里。游戏运行和存档无需网络。").font(.system(size:11)).foregroundStyle(Palette.muted).lineSpacing(4)
-            Text("Game Bench · 本地版 0.4.1 · Apple Silicon").font(.system(size:10,design:.monospaced)).foregroundStyle(Palette.muted)
+            Text("Game Bench · 本地版 0.4.2 · Apple Silicon").font(.system(size:10,design:.monospaced)).foregroundStyle(Palette.muted)
         }.padding(30).frame(width:550).background(Palette.background)
     }
     private func handleAction(_ action: PadAction) {
